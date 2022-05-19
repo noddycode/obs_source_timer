@@ -18,7 +18,6 @@ class CurrentSettings():
     duration = 0
     duration_unit = ""
 
-
 class SourceController():
 
     def __init__(self, source_name, frequency, frequency_unit, duration, duration_unit):
@@ -35,18 +34,14 @@ class SourceController():
         obs.obs_scene_release(current_scene)
 
     def duration_timer(self):
-        print("hi")
         self.set_visibility(False)
         obs.timer_add(self.frequency_timer, self.frequency * time_multipliers[self.frequency_unit])
-        # obs.timer_remove(self.duration_timer)
-        obs.remove_current_callback()
+        obs.timer_remove(self.duration_timer)
 
     def frequency_timer(self):
-        print("hello")
         self.set_visibility(True)
         obs.timer_add(self.duration_timer, self.duration * time_multipliers[self.duration_unit])
-        # obs.timer_remove(self.frequency_timer)
-        obs.remove_current_callback()
+        obs.timer_remove(self.frequency_timer)
 
     def stop_timers(self, props, prop):
         obs.timer_remove(self.duration_timer)
