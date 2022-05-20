@@ -115,6 +115,9 @@ def set_existing_properties(props, prop, settings):
     return True
 
 def start_timers(props, prop):
+    # For UX reasons, go ahead and add the configuration when starting a timer
+    add_update_controller(props, prop)
+
     controller = source_dict[CurrentSettings.source_name]
     controller.start_timers()
 
