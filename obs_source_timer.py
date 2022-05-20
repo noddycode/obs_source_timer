@@ -1,14 +1,14 @@
 import obspython as obs
+import sys
+import threading
 
 time_multipliers = {
-    "Hour": 3600000,
-    "Minute": 60000,
-    "Second": 1000
+    "Hour": 360,
+    "Minute": 60,
+    "Second": 1
 }
 
-active_flag = False
 source_dict = {}
-
 
 # Simple class to hold settings after each update
 class CurrentSettings():
@@ -27,29 +27,56 @@ class SourceController():
         self.duration = duration
         self.duration_unit = duration_unit
 
+        self.timer = None
+        self.active_flag = True  # safety flag
+
     def set_visibility(self, is_visible):
         current_scene = obs.obs_scene_from_source(obs.obs_frontend_get_current_scene())
         scene_item = obs.obs_scene_find_source(current_scene, self.source_name)
         obs.obs_sceneitem_set_visible(scene_item, is_visible)
         obs.obs_scene_release(current_scene)
 
-    def duration_timer(self):
+    def set_timer(self, num_units, unit, callback):
+        self.timer = threading.Timer(num_units * time_multipliers[unit], callback)
+        self.timer.name = "source_timer"
+        self.timer.daemon = True
+
+    def is_active(self):
+        """
+
+        This is just a safety method to clean up any stray objects that might still have timer threads running
+        """
+
+        return self in source_dict.values() and self.active_flag
+
+
+    def duration_timer_callback(self):
+        if not self.is_active():
+            self.stop_timers
+            return
+
         self.set_visibility(False)
-        obs.timer_add(self.frequency_timer, self.frequency * time_multipliers[self.frequency_unit])
-        obs.timer_remove(self.duration_timer)
+        self.set_timer(self.frequency, self.frequency_unit, self.frequency_timer_callback)
+        self.timer.start()
 
-    def frequency_timer(self):
+    def frequency_timer_callback(self):
+        if not self.is_active():
+            self.stop_timers
+            return
+
         self.set_visibility(True)
-        obs.timer_add(self.duration_timer, self.duration * time_multipliers[self.duration_unit])
-        obs.timer_remove(self.frequency_timer)
+        self.set_timer(self.duration, self.duration_unit, self.duration_timer_callback)
+        self.timer.start()
 
-    def stop_timers(self, props, prop):
-        obs.timer_remove(self.duration_timer)
-        obs.timer_remove(self.frequency_timer)
+    def stop_timers(self):
+        self.active_flag = False
+        if self.timer:
+            self.timer.cancel()
 
-    def start_timers(self, props, prop):
-        self.stop_timers(None, None)
-        self.frequency_timer()
+    def start_timers(self):
+        self.stop_timers()
+        self.active_flag = True
+        self.frequency_timer_callback()
 
 def get_all_source_names():
     sources = obs.obs_enum_sources()
@@ -60,6 +87,10 @@ def get_all_source_names():
 
 def add_update_controller(props, prop):
     global source_dict
+
+    # Make sure we cancel out any running timer threads before updating
+    if CurrentSettings.source_name in source_dict:
+        source_dict[CurrentSettings.source_name].stop_timers()
 
     source_dict[CurrentSettings.source_name] = SourceController(
         CurrentSettings.source_name, 
@@ -85,16 +116,15 @@ def set_existing_properties(props, prop, settings):
 
 def start_timers(props, prop):
     controller = source_dict[CurrentSettings.source_name]
-    controller.start_timers(props, prop)
+    controller.start_timers()
 
 def stop_timers(props, prop):
     controller = source_dict[CurrentSettings.source_name]
-    print(controller)
-    controller.stop_timers(props, prop)
+    controller.stop_timers()
 
 def stop_all_timers(props, prop):
     for controller in source_dict.values():
-        controller.stop_timers(props, prop)
+        controller.stop_timers()
 
 
 def script_properties():
@@ -144,3 +174,5 @@ def script_update(settings):
     CurrentSettings.duration = obs.obs_data_get_int(settings, "duration")
     CurrentSettings.duration_unit = obs.obs_data_get_string(settings, "duration_unit")
 
+def script_unload():
+    stop_all_timers(None, None)
