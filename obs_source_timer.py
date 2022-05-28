@@ -1,6 +1,9 @@
 import obspython as obs
 import sys
 import threading
+import json
+import os
+from tkinter import filedialog
 
 time_multipliers = {
     "Hour": 360,
@@ -17,6 +20,11 @@ class CurrentSettings():
     frequency_unit = ""
     duration = 0
     duration_unit = ""
+
+    save_config_path = ""
+    load_config_path = ""
+
+    run_at_startup = False
 
 class SourceController():
 
@@ -78,6 +86,7 @@ class SourceController():
         self.active_flag = True
         self.frequency_timer_callback()
 
+
 def get_all_source_names():
     sources = obs.obs_enum_sources()
     source_names = [obs.obs_source_get_name(s) for s in sources]
@@ -114,6 +123,7 @@ def set_existing_properties(props, prop, settings):
 
     return True
 
+
 def start_timers(props, prop):
     # For UX reasons, go ahead and add the configuration when starting a timer
     add_update_controller(props, prop)
@@ -121,13 +131,74 @@ def start_timers(props, prop):
     controller = source_dict[CurrentSettings.source_name]
     controller.start_timers()
 
+
 def stop_timers(props, prop):
     controller = source_dict[CurrentSettings.source_name]
     controller.stop_timers()
 
+
+def start_all_timers(props, prop):
+    stop_all_timers(props, prop)
+    for controller in source_dict.values():
+        controller.start_timers()
+
+
 def stop_all_timers(props, prop):
     for controller in source_dict.values():
         controller.stop_timers()
+
+
+def save_config_callback(props, prop):
+    """
+    Simple wrapper method to ensure prop(s) only used when needed
+    """
+    save_config()
+
+
+def save_config():
+    """
+    Serializes all source settings and saves them to the specified JSON file
+    """
+    path = CurrentSettings.save_config_path
+    if not path:
+        return
+
+    ext = os.path.splitext(path)[1]
+    if ext.lower() != ".json":
+        path += '.json'
+
+    output_dict = {"controllers": []}
+
+    for controller in source_dict.values():
+        controller_dict = {key: controller.__dict__[key] for key in ("source_name", "frequency", "frequency_unit", "duration", "duration_unit")}
+        output_dict["controllers"].append(controller_dict)
+
+    
+    with open(path, "w") as fout:
+        json.dump(output_dict, fout, skipkeys=True, indent=2)
+
+
+def load_config_callback(props, prop):
+    """
+    Simple wrapper method to ensure prop(s) only used when needed
+    """
+    load_config()
+
+
+def load_config():
+    """
+    Loads the specified JSON file back into controllers
+    """
+
+    path = CurrentSettings.load_config_path
+    if not path:
+        return
+
+    with open(path) as fin:
+        input_dict = json.load(fin)
+
+    for controller_dict in input_dict["controllers"]:
+        source_dict[controller_dict["source_name"]] = SourceController(**controller_dict)
 
 
 def script_properties():
@@ -161,21 +232,48 @@ def script_properties():
     obs.obs_property_set_modified_callback(obs_scene_list, set_existing_properties)
 
     obs.obs_properties_add_button(props, "start_button", "Start Timer", start_timers)
+    obs.obs_properties_add_button(props, "start_all_button", "Start All", start_all_timers)
     obs.obs_properties_add_button(props, "stop_button", "Stop Timer", stop_timers)
     obs.obs_properties_add_button(props, "stop_all_button", "Stop All", stop_all_timers)
 
+
+    save_config_path = obs.obs_properties_add_path(props, "save_config_path", "Path to save to", obs.OBS_PATH_FILE_SAVE, None, None)
+    obs.obs_properties_add_button(props, "save_config", "Save Configuration Settings", save_config_callback)
+
+    load_config_path = obs.obs_properties_add_path(props, "load_config_path", "Path to load from", obs.OBS_PATH_FILE, "*.json", None)
+    obs.obs_properties_add_button(props, "load_config", "Load Configuration Settings", load_config_callback)
+
+    obs.obs_properties_add_bool(props, "run_at_startup", "Run at startup?")
+
     return props
+
+
+def set_current_settings(settings):
+    CurrentSettings.source_name = obs.obs_data_get_string(settings, "source")
+    CurrentSettings.frequency = obs.obs_data_get_int(settings, "frequency")
+    CurrentSettings.frequency_unit = obs.obs_data_get_string(settings, "frequency_unit")
+    CurrentSettings.duration = obs.obs_data_get_int(settings, "duration")
+    CurrentSettings.duration_unit = obs.obs_data_get_string(settings, "duration_unit")
+
+    CurrentSettings.save_config_path = obs.obs_data_get_string(settings, "save_config_path")
+    CurrentSettings.load_config_path = obs.obs_data_get_string(settings, "load_config_path")
+
+    CurrentSettings.run_at_startup = obs.obs_data_get_bool(settings, "run_at_startup")
 
 
 def script_update(settings):
     """
     Called when user updates a setting
     """
-    CurrentSettings.source_name = obs.obs_data_get_string(settings, "source")
-    CurrentSettings.frequency = obs.obs_data_get_int(settings, "frequency")
-    CurrentSettings.frequency_unit = obs.obs_data_get_string(settings, "frequency_unit")
-    CurrentSettings.duration = obs.obs_data_get_int(settings, "duration")
-    CurrentSettings.duration_unit = obs.obs_data_get_string(settings, "duration_unit")
+    set_current_settings(settings)
+    
+
+def script_load(settings):
+    set_current_settings(settings)
+    stop_all_timers(None, None)
+    if CurrentSettings.run_at_startup:
+        load_config()
+        start_all_timers(None, None)
 
 def script_unload():
     stop_all_timers(None, None)
