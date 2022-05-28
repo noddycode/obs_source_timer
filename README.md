@@ -33,7 +33,4 @@ This is a simple program that will make a single source appear and disappear (wi
 3. You can manulaly edit the JSON files, however note that **there is no validation for files**. If the configuration file fails to load properly, the script may crash or simply not work
 4. Check "Run at startup" to have OBS automatically load the config you have selected and start all timers when you open OBS or reload the script
 
-**WARNING:**
-Reloading the script will **erase** all saved configurations, but OBS will cache all selected options.
-
 Please report any issues in the Issues tab of this repository.
